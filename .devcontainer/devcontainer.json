@@ -1,0 +1,7 @@
+{
+  "name": "Close Call Kokpit",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "forwardPorts": [5300],
+  "portsAttributes": { "5300": { "label": "Kokpit", "onAutoForward": "openBrowser" } },
+  "postAttachCommand": "echo 'Başlatmak için: npm start'"
+}

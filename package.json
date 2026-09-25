@@ -1,0 +1,14 @@
+{
+  "name": "technocore-close-call-kokpit",
+  "version": "1.0.0",
+  "description": "Technocore Close Call (close-1) için tarayıcıda imzalayan, bağımlılıksız işlem masası.",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/core.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,5 @@
+node_modules/
+*.pem
+!test/fixtures/throwaway.pem
+.env
+.DS_Store

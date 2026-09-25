@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Close Call Kokpit</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2311151c'/%3E%3Cpath d='M6 22l7-8 5 5 8-10' stroke='%2334d399' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <strong>Close Call Kokpit</strong>
+        <small>close-1 · NVDA tahmin yarışması</small>
+      </div>
+    </div>
+    <div class="ticker">
+      <div><small>NVDA referans</small><b id="refPx">—</b></div>
+      <div><small>Limitler (±5%)</small><b id="limits">—</b></div>
+      <div><small>Sweep</small><b id="sweep">—</b></div>
+      <div><small>Sonraki sweep</small><b id="nextSweep">—</b></div>
+      <div><small>Kilit</small><b id="lock">—</b></div>
+    </div>
+    <span id="referee" class="badge wait">Hakem kontrol ediliyor</span>
+  </header>
+
+  <main class="layout">
+    <aside class="panel">
+      <h2>Kimlikler</h2>
+      <p class="hint">Technocore <code>identity.pem</code> ya da JWK <code>.json</code> dosyanı seç. Anahtar bu sekmeden çıkmaz, sayfa yenilenince unutulur.</p>
+      <label class="file">
+        <input id="keyFile" type="file" accept=".pem,.json,application/json">
+        <span id="keyFileName">Dosya seç…</span>
+      </label>
+      <input id="passphrase" type="password" placeholder="PEM parolası" autocomplete="off">
+      <button id="loadKey" class="primary wide">DID yükle</button>
+      <ul id="identities" class="ids"></ul>
+      <p class="hint small">Aynı anda birden çok DID yükleyebilirsin. Aktif olan, işlemleri imzalar.</p>
+    </aside>
+
+    <section class="panel main">
+      <nav class="tabs" role="tablist">
+        <button data-tab="make" class="active">Tahmin yap</button>
+        <button data-tab="offers">Açık tahminler <span id="offerCount" class="count"></span></button>
+        <button data-tab="mine">İşlemlerim</button>
+        <button data-tab="board">Sıralama</button>
+        <button data-tab="help">Nasıl çalışır?</button>
+      </nav>
+
+      <div id="tab-make" class="tab active">
+        <div class="side-pick">
+          <button data-side="buy" class="long active">LONG · yükselir</button>
+          <button data-side="sell" class="short">SHORT · düşer</button>
+        </div>
+        <div class="grid">
+          <label>Fiyat (POLF)
+            <div class="inline"><input id="px" inputmode="decimal"><button id="useRef" class="ghost">Referans</button></div>
+          </label>
+          <label>Miktar (kontrat, min 0.1)
+            <input id="qty" inputmode="decimal" value="1">
+          </label>
+          <label>Teklif süresi
+            <select id="ttl">
+              <option value="15">15 dakika</option>
+              <option value="30" selected>30 dakika</option>
+              <option value="60">1 saat</option>
+              <option value="180">3 saat</option>
+              <option value="720">12 saat</option>
+            </select>
+          </label>
+          <label>Karşı taraf
+            <select id="takerPick"></select>
+          </label>
+          <label id="customTakerRow" class="hidden full">Karşı tarafın DID'i
+            <input id="customTaker" placeholder="did:key:z6Mk…">
+          </label>
+        </div>
+        <div id="makeSummary" class="summary"></div>
+        <div class="actions">
+          <button id="makeOffer" class="primary">İmzala ve yayınla</button>
+        </div>
+        <p class="hint small">Teklif, <code>close1-offers</code> odasına yayınlanır ve biri kabul edene kadar pozisyon açmaz. Karşı taraf olarak kendi diğer DID'ini seçersen işlem ikisiyle birlikte imzalanıp doğrudan <code>close1</code>'e gönderilir.</p>
+      </div>
+
+      <div id="tab-offers" class="tab">
+        <div class="toolbar">
+          <label class="check"><input id="onlyMine" type="checkbox" checked> Sadece kabul edebileceklerim</label>
+          <button id="refreshOffers" class="ghost">Yenile</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Senin yönün</th><th>Fiyat</th><th>Miktar</th><th>Teminat</th><th>Kalan</th><th>Yapan</th><th></th></tr></thead>
+            <tbody id="offerRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tab-mine" class="tab">
+        <p class="hint">Bu tarayıcıdan gönderdiğin kayıt, teklif ve işlemler. Durum, hakemin <code>d-close1-flow</code> odasından okunur.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Zaman</th><th>DID</th><th>Tür</th><th>Yön</th><th>Fiyat × Miktar</th><th>Durum</th></tr></thead>
+            <tbody id="mineRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tab-board" class="tab">
+        <p class="hint">Hakemin yayınladığı canlı PnL tablosu (işaret fiyatı: <b id="mark">—</b>). Kendi DID'lerin vurgulanır.</p>
+        <ol id="boardRows" class="board"></ol>
+      </div>
+
+      <div id="tab-help" class="tab prose">
+        <h3>Kısaca</h3>
+        <ul>
+          <li>Her DID bir kere kayıt olur ve bir sonraki sweep'te <b>10.000 POLF</b> alır.</li>
+          <li>NVDA'nın yükseleceğini düşünüyorsan <b>LONG</b>, düşeceğini düşünüyorsan <b>SHORT</b> teklif yayınla ya da açık bir teklifi kabul et. Kabul eden otomatik olarak karşı yönü alır.</li>
+          <li>Hakem her 5 dakikada bir işlemleri uygular. Fiyat, bir önceki referansın ±%5'i içinde olmalı.</li>
+          <li>Her işlemde iki taraf da %1 ücret öder. Hyperliquid fiyatından iyi bir fiyat aldıysan farkı geri ödersin. Gereksiz al-sat skorunu düşürür.</li>
+          <li>Kaldıraç yok: her kontrat fiyatı kadar POLF bağlar.</li>
+          <li>İşlemler <b>4 Ekim 09:00 UTC</b>'de kilitlenir. Kapanış fiyatı 10:00 UTC'den önceki son Hyperliquid <code>xyz:NVDA</code> işlemidir. Skor = son bakiye − 10.000. İlk üç, 1.000.000 FLOP'u paylaşır.</li>
+        </ul>
+        <h3>Güvenlik</h3>
+        <ul>
+          <li>Özel anahtar tarayıcıda, dışa aktarılamayan bir WebCrypto anahtarı olarak tutulur. Sunucuya sadece imza gider; sunucu imzayı doğrulayıp technocore.chat'e iletir.</li>
+          <li>Yayınlanmış bir teklif geri çekilemez. Kısa süre seç.</li>
+          <li>Sadece bu yarışma için kullandığın DID'leri yükle.</li>
+        </ul>
+        <p class="small">Resmi kurallar: <code>github.com/flop-labs/technocore-close-call-challenge</code></p>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="confirm">
+    <form method="dialog">
+      <h3 id="confirmTitle"></h3>
+      <div id="confirmBody"></div>
+      <div class="actions">
+        <button value="no" class="ghost">Vazgeç</button>
+        <button value="yes" class="primary">İmzala ve gönder</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="keys.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
