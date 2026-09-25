@@ -28,6 +28,8 @@ function h(tag, props = {}, ...children) {
   for (const [key, value] of Object.entries(props)) {
     if (key === "class") node.className = value;
     else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else if (value === true) node.setAttribute(key, "");
+    else if (value === false || value === null || value === undefined) continue;
     else node.setAttribute(key, value);
   }
   for (const child of children.flat()) {
@@ -40,6 +42,13 @@ const short = (did) => (did ? `${did.slice(8, 14)}…${did.slice(-5)}` : "—");
 const money = (value) => Number(value).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const myDids = () => new Set(state.identities.map((i) => i.did));
 const activeIdentity = () => state.identities.find((i) => i.did === state.active) || null;
+const launchReady = () => Boolean(state.market?.referee?.ownsRooms && state.market?.referee?.live && state.market?.referee?.seedValid);
+
+function requireLaunch() {
+  if (launchReady()) return true;
+  toast("Hakem odaları, canlı yayın ve imzalı seed/paket doğrulanmadan imzalı işlem gönderilmez.", "error");
+  return false;
+}
 
 function toast(message, kind = "") {
   const node = $("#toast");
@@ -158,20 +167,47 @@ async function loadKey() {
 }
 
 function registration(did) {
-  if (state.market?.mints?.includes(did)) return { label: "10.000 POLF alındı", kind: "ok" };
+  if (state.market?.mints?.includes(did)) return { label: "10.000 POLF alındı", kind: "ok", ready: true };
   const onBoard = (state.market?.pnl?.top || []).some(([d]) => d === did) || (state.market?.positions?.top || []).some(([d]) => d === did);
-  if (onBoard) return { label: "Kayıtlı", kind: "ok" };
+  if (onBoard) return { label: "Kayıtlı", kind: "ok", ready: true };
+  if (store("registered", {})[did]) return { label: "Önceki kayıt onaylandı", kind: "ok", ready: true, confirmed: true };
   const sent = store("log", []).find((e) => e.kind === "owner" && e.did === did);
-  if (sent) return { label: "Kayıt gönderildi", kind: "warn", sent: true };
-  return { label: "Kayıt bilinmiyor", kind: "" };
+  if (sent) return { label: "Kayıt gönderildi", kind: "warn", pending: true };
+  return { label: "Kayıt bilinmiyor", kind: "", unknown: true };
+}
+
+function requireRegistered(identity, role = "DID") {
+  const reg = registration(identity.did);
+  if (reg.ready) return true;
+  toast(reg.pending
+    ? `${role} için kayıt gönderildi; 10.000 POLF mintinin işlendiği sweep'i bekle.`
+    : `${role} kayıtlı görünmüyor. Önce kayıt ol veya daha önce kayıt olduysan bunu kimlik kartından onayla.`, "error");
+  return false;
+}
+
+async function confirmPreviousRegistration(identity) {
+  const ok = await confirmDialog("Önceki kaydı onayla", [
+    `DID: ${short(identity.did)}`,
+    "Bunu yalnızca bu DID daha önce close-1 yarışmasına kaydedilip 10.000 POLF aldıysa onayla.",
+    h("div", { class: "note" }, "Bu yalnızca arayüz kilidini açar; hakemin resmî kontrolünü değiştirmez. Kayıtlı olmayan işlem 'not_owner' ile geçersiz olur."),
+  ]);
+  if (!ok) return;
+  const confirmed = store("registered", {});
+  confirmed[identity.did] = new Date().toISOString();
+  save("registered", confirmed);
+  renderAll();
+  toast("Önceki kayıt bu tarayıcı için onaylandı.", "success");
 }
 
 async function register(identity) {
+  if (!requireLaunch()) return;
   const reg = registration(identity.did);
+  if (reg.ready) return toast("Bu DID kayıtlı olarak işaretlenmiş; yeniden kayıt gönderilmedi.");
+  if (reg.pending) return toast("Bu DID için kayıt zaten gönderilmiş; sonraki sweep'i bekle.");
   const ok = await confirmDialog("Yarışmaya kayıt", [
     `DID: ${short(identity.did)}`,
     "close1 odasına imzalı kayıt mesajı gönderilecek. Bir sonraki sweep'te 10.000 POLF verilir.",
-    reg.sent ? h("div", { class: "note" }, "⚠ Bu tarayıcıdan zaten kayıt gönderilmiş. Her DID bir kez mint alır; tekrar göndermek gerekmez.") : h("div", { class: "note" }, "Bu DID ile daha önce kayıt olduysan tekrar gönderme."),
+    h("div", { class: "note" }, "Bu DID ile daha önce kayıt olduysan tekrar gönderme; kimlik kartındaki 'Daha önce kaydoldum' seçeneğini kullan."),
   ]);
   if (!ok) return;
   try {
@@ -197,7 +233,8 @@ function renderIdentities() {
           identity.did === state.active ? h("span", { class: "chip ok" }, "aktif") : h("button", { class: "mini ghost", onclick: () => { state.active = identity.did; renderAll(); } }, "Seç")),
         h("div", { class: "meta" },
           h("span", { class: `chip ${reg.kind}` }, reg.label),
-          h("button", { class: "mini", onclick: () => register(identity) }, "Kayıt ol"),
+          reg.unknown ? h("button", { class: "mini", disabled: !launchReady(), onclick: () => register(identity) }, "Kayıt ol") : null,
+          reg.unknown ? h("button", { class: "mini ghost", onclick: () => confirmPreviousRegistration(identity) }, "Daha önce kaydoldum") : null,
           h("button", { class: "mini ghost", onclick: () => navigator.clipboard?.writeText(identity.did).then(() => toast("DID kopyalandı.")) }, "Kopyala"),
           h("button", { class: "mini ghost", onclick: () => forget(identity.did) }, "Unut")));
     }));
@@ -247,6 +284,7 @@ function renderMakeSummary() {
   const box = $("#makeSummary");
   if (errors.length) {
     box.replaceChildren(...errors.map((e) => h("div", { class: "warn" }, e)));
+    $("#makeOffer").disabled = true;
     return;
   }
   const value = Number(px) * Number(qty);
@@ -262,15 +300,19 @@ function renderMakeSummary() {
   const edge = long ? ref - Number(px) : Number(px) - ref;
   if (edge > 0 && edge > Number(px) * 0.01) lines.push(h("div", { class: "warn" }, "Fiyat, referanstan senin lehine %1'den fazla farklı: fark ücret olarak geri alınır."));
   box.replaceChildren(...lines);
+  const maker = activeIdentity();
+  $("#makeOffer").disabled = !launchReady() || !maker || !registration(maker.did).ready;
 }
 
 async function makeOffer() {
   const maker = activeIdentity();
   if (!maker) return toast("Önce bir DID yükle.", "error");
+  if (!requireLaunch() || !requireRegistered(maker, "İşlemi yapan DID")) return;
   const { px, qty, taker, until, errors } = readMakeForm();
   if (errors.length) return toast(errors[0], "error");
   const terms = { id: newTradeId(), maker: maker.did, px, qty, side: state.side, taker, until };
   const ownTaker = state.identities.find((i) => i.did === taker);
+  if (ownTaker && !requireRegistered(ownTaker, "Karşı taraf DID")) return;
   const direction = state.side === "buy" ? "LONG" : "SHORT";
 
   const ok = await confirmDialog(ownTaker ? "İki DID arasında işlem" : "Teklifi imzala", [
@@ -305,6 +347,7 @@ async function makeOffer() {
 async function acceptOffer(offer) {
   const taker = activeIdentity();
   if (!taker) return toast("Önce bir DID yükle.", "error");
+  if (!requireLaunch() || !requireRegistered(taker, "Kabul eden DID")) return;
   const { terms } = offer;
   if (terms.maker === taker.did) return toast("Kendi teklifini kabul edemezsin.", "error");
   if (terms.taker !== "any" && terms.taker !== taker.did) return toast("Bu teklif başka bir DID'e ayrılmış.", "error");
@@ -343,6 +386,8 @@ function renderOffers() {
     const { terms } = offer;
     const mySide = terms.side === "buy" ? "short" : "long";
     const ownOffer = mine.has(terms.maker);
+    const taker = activeIdentity();
+    const canAccept = launchReady() && taker && registration(taker.did).ready && terms.until >= sweep;
     return h("tr", {},
       h("td", { class: mySide }, mySide.toUpperCase()),
       h("td", {}, terms.px),
@@ -350,18 +395,48 @@ function renderOffers() {
       h("td", {}, money(Number(terms.px) * Number(terms.qty))),
       h("td", {}, duration(sweepTime(terms.until) - Date.now()), terms.until < sweep ? " (bitti)" : ""),
       h("td", { class: "mono", title: terms.maker }, short(terms.maker), terms.taker !== "any" ? " → sana özel" : ""),
-      h("td", {}, ownOffer ? h("span", { class: "chip" }, "senin") : h("button", { class: "mini primary", onclick: () => acceptOffer(offer) }, "Kabul et")));
+      h("td", {}, ownOffer ? h("span", { class: "chip" }, "senin") : h("button", { class: "mini primary", disabled: !canAccept, onclick: () => acceptOffer(offer) }, "Kabul et")));
   }));
 }
 
 // ---------- my activity & board ----------
+
+function persistMarketEvidence() {
+  const entries = store("log", []);
+  let logChanged = false;
+  for (const entry of entries) {
+    const result = entry.terms && state.market?.outcomes?.[entry.terms.id];
+    if (result && JSON.stringify(entry.result) !== JSON.stringify(result)) {
+      entry.result = result;
+      logChanged = true;
+    }
+  }
+  if (logChanged) save("log", entries);
+
+  const registered = store("registered", {});
+  let registrationChanged = false;
+  const candidates = new Set([
+    ...state.identities.map((identity) => identity.did),
+    ...entries.filter((entry) => entry.kind === "owner").map((entry) => entry.did),
+  ]);
+  for (const did of candidates) {
+    const minted = state.market?.mints?.includes(did);
+    const onBoard = (state.market?.pnl?.top || []).some(([key]) => key === did)
+      || (state.market?.positions?.top || []).some(([key]) => key === did);
+    if ((minted || onBoard) && !registered[did]) {
+      registered[did] = new Date().toISOString();
+      registrationChanged = true;
+    }
+  }
+  if (registrationChanged) save("registered", registered);
+}
 
 function outcome(entry) {
   if (entry.kind === "owner") {
     const reg = registration(entry.did);
     return { label: reg.label === "Kayıt gönderildi" ? "Bekliyor" : reg.label, kind: reg.kind };
   }
-  const result = state.market?.outcomes?.[entry.terms.id];
+  const result = state.market?.outcomes?.[entry.terms.id] || entry.result;
   if (result?.status === "settled") return { label: `Sonuçlandı (sweep ${result.n})`, kind: "ok" };
   if (result?.status === "void") return { label: `Geçersiz: ${result.reason}`, kind: "bad" };
   if (entry.terms.until < currentSweep() - 1) return { label: entry.kind === "offer" ? "Süresi doldu / görülmedi" : "Sonuç görülmedi", kind: "" };
@@ -406,9 +481,15 @@ function renderMarket() {
   const m = state.market;
   const badge = $("#referee");
   if (!m) return;
-  const ok = m.referee.ownsRooms && m.referee.live;
+  const ok = launchReady();
   badge.className = `badge ${ok ? "ok" : "bad"}`;
-  badge.textContent = ok ? "Hakem canlı ve doğrulandı" : m.referee.ownsRooms ? "Hakem yayını gecikti" : "Hakem doğrulanamadı!";
+  badge.textContent = ok
+    ? "Hakem + seed + paket doğrulandı"
+    : !m.referee.seedValid
+      ? "İmzalı seed/paket doğrulanamadı!"
+      : m.referee.ownsRooms
+        ? "Hakem yayını gecikti"
+        : "Hakem odaları doğrulanamadı!";
   $("#refPx").textContent = m.price?.ref?.px || "—";
   $("#limits").textContent = m.price?.limits ? m.price.limits.join(" – ") : "—";
   $("#sweep").textContent = m.price ? `${m.price.n} / ${CONTEST.lockSweep}` : "—";
@@ -424,6 +505,7 @@ function tick() {
 async function refreshMarket(fresh = false) {
   try {
     state.market = await api(`/api/market${fresh ? "?fresh" : ""}`);
+    persistMarketEvidence();
     renderMarket();
     renderIdentities();
     renderMine();

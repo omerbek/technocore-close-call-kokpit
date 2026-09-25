@@ -21,6 +21,16 @@ test("wrong passphrase is refused", async () => {
   await assert.rejects(Keys.loadIdentity(pem, "wrong-passphrase"), /Parola yanlış/);
 });
 
+test("Technocore privateKeyJwk JSON imports without exposing an extractable key", async () => {
+  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign"]);
+  const jwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+  const did = Keys.didFromX(jwk.x);
+  const loaded = await Keys.loadIdentity(JSON.stringify({ did, privateKeyJwk: jwk }));
+  assert.equal(loaded.did, did);
+  assert.equal(loaded.key.extractable, false);
+  await assert.rejects(Keys.loadIdentity(JSON.stringify({ did: fixture.did, privateKeyJwk: jwk })), /eşleşmiyor/);
+});
+
 test("signed owner, offer and trade pass the server's checks", async () => {
   const maker = await Keys.loadIdentity(pem, fixture.passphrase);
   const taker = await freshIdentity();
@@ -50,6 +60,17 @@ test("terms are canonical and validated", () => {
   assert.equal(core.canonicalTerms({ ...terms, qty: "0.05" }), null);
   assert.equal(core.canonicalTerms({ ...terms, px: "1.234" }), null);
   assert.equal(core.canonicalTerms({ ...terms, extra: 1 }), null);
+});
+
+test("the embedded launch seed pins the signed package and referee rooms", () => {
+  assert.equal(core.verifyLaunchSeed(), true);
+  const seed = core.parseJson(core.LAUNCH_SEED_MESSAGE.text);
+  assert.equal(core.verifySeed(seed), true);
+  assert.equal(core.verifySeed({ ...seed, package: "0".repeat(64) }), false);
+  assert.equal(core.verifySeed({ ...seed, rooms: seed.rooms.slice(1) }), false);
+
+  const tampered = { ...core.LAUNCH_SEED_MESSAGE, text: core.LAUNCH_SEED_MESSAGE.text.replace("226.14", "226.15") };
+  assert.equal(core.verifyMessage(core.ROOMS.price, tampered), false);
 });
 
 async function envelope(identity, room, text) {
