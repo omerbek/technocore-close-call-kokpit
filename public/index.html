@@ -98,7 +98,7 @@
       </div>
 
       <div id="tab-mine" class="tab">
-        <p class="hint">Bu tarayıcıdan gönderdiğin kayıt, teklif ve işlemler. Durum, hakemin <code>d-close1-flow</code> odasından okunur.</p>
+        <p class="hint">Bu tarayıcıdan gönderdiğin kayıt, teklif ve işlemler. Durum, hakemin <code>d-close1-flow</code> odasından okunur; görülen nihai sonuçlar yerelde saklanır.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Zaman</th><th>DID</th><th>Tür</th><th>Yön</th><th>Fiyat × Miktar</th><th>Durum</th></tr></thead>
@@ -116,6 +116,7 @@
         <h3>Kısaca</h3>
         <ul>
           <li>Her DID bir kere kayıt olur ve bir sonraki sweep'te <b>10.000 POLF</b> alır.</li>
+          <li>Daha önce kayıt olduysan tekrar kayıt gönderme; kimlik kartındaki <b>Daha önce kaydoldum</b> seçeneğini kullan.</li>
           <li>NVDA'nın yükseleceğini düşünüyorsan <b>LONG</b>, düşeceğini düşünüyorsan <b>SHORT</b> teklif yayınla ya da açık bir teklifi kabul et. Kabul eden otomatik olarak karşı yönü alır.</li>
           <li>Hakem her 5 dakikada bir işlemleri uygular. Fiyat, bir önceki referansın ±%5'i içinde olmalı.</li>
           <li>Her işlemde iki taraf da %1 ücret öder. Hyperliquid fiyatından iyi bir fiyat aldıysan farkı geri ödersin. Gereksiz al-sat skorunu düşürür.</li>
@@ -125,6 +126,7 @@
         <h3>Güvenlik</h3>
         <ul>
           <li>Özel anahtar tarayıcıda, dışa aktarılamayan bir WebCrypto anahtarı olarak tutulur. Sunucuya sadece imza gider; sunucu imzayı doğrulayıp technocore.chat'e iletir.</li>
+          <li>İmzalı launch seed'i, resmî paket hash'i, hakem odaları ve canlı yayın doğrulanmazsa yazma işlemleri kilitlenir.</li>
           <li>Yayınlanmış bir teklif geri çekilemez. Kısa süre seç.</li>
           <li>Sadece bu yarışma için kullandığın DID'leri yükle.</li>
         </ul>

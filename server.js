@@ -110,6 +110,8 @@ const market = cached(5_000, async () => {
     Promise.all(REFEREE_ROOMS.map(roomOwner)),
   ]);
   const latestPrice = [...price].reverse().find((p) => p.record.t === "price") || null;
+  const launchSeed = core.parseJson(core.LAUNCH_SEED_MESSAGE.text);
+  const seedValid = core.verifyLaunchSeed();
 
   // The flow room lists each sweep's outcomes; posts may omit some when a sweep is large.
   const outcomes = {};
@@ -132,6 +134,8 @@ const market = cached(5_000, async () => {
       did: CONTEST.refereeDid,
       ownsRooms: owners.every((owner) => owner === CONTEST.refereeDid),
       live: Boolean(latestPrice) && Date.now() - Date.parse(latestPrice.ts) < 15 * 60_000,
+      seedValid,
+      package: seedValid ? launchSeed.package : null,
     },
     price: latestPrice && { ...latestPrice.record, ts: latestPrice.ts },
     pnl: pnl.at(-1)?.record || null,
@@ -206,6 +210,12 @@ async function api(req, res, url) {
   }
   const post = url.pathname.match(/^\/api\/post\/([a-z0-9-]+)$/);
   if (req.method === "POST" && post) {
+    const snapshot = await market();
+    if (!(snapshot.referee.ownsRooms && snapshot.referee.live && snapshot.referee.seedValid)) {
+      const error = new Error("Hakem odaları, canlı yayın ve imzalı seed/paket doğrulanmadan mesaj gönderilmez.");
+      error.status = 409;
+      throw error;
+    }
     const payload = checkPost(post[1], await readBody(req));
     const text = await technocore(`/r/${post[1]}?format=json`, {
       method: "POST",
